@@ -1,7 +1,9 @@
 //! The definition of the main struct for text embeddings - [`TextEmbedding`].
 
 #[cfg(feature = "hf-hub")]
-use crate::common::{init_session_builder, load_tokenizer_hf_hub};
+use crate::common::{
+    init_session_builder, load_tokenizer_hf_hub, load_tokenizer_hf_hub_with_special_tokens,
+};
 use crate::{
     common::{encode_batch, load_tokenizer, Error, Result},
     models::{text_embedding::models_list, ModelTrait},
@@ -11,7 +13,7 @@ use crate::{
 };
 #[cfg(feature = "hf-hub")]
 use hf_hub::api::sync::ApiRepo;
-use ort::session::Session;
+use ort::{session::Session, value::Value};
 #[cfg(feature = "hf-hub")]
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -69,7 +71,15 @@ impl TextEmbedding {
         let session = init_session_builder(execution_providers, intra_threads, session_config)?
             .commit_from_file(model_file_reference)?;
 
-        let tokenizer = load_tokenizer_hf_hub(model_repo, max_length)?;
+        let tokenizer = if model_name == EmbeddingModel::EmbeddingGemma2 {
+            load_tokenizer_hf_hub_with_special_tokens(
+                model_repo,
+                max_length.min(8192),
+                b"{}".to_vec(),
+            )?
+        } else {
+            load_tokenizer_hf_hub(model_repo, max_length)?
+        };
         Ok(Self::new(
             tokenizer,
             session,
@@ -120,10 +130,14 @@ impl TextEmbedding {
             .iter()
             .any(|input| input.name() == "token_type_ids");
 
+        let need_embeddinggemma2_features = ["image_features", "video_features", "audio_features"]
+            .iter()
+            .all(|name| session.inputs().iter().any(|input| input.name() == *name));
         Self {
             tokenizer,
             session,
             need_token_type_ids,
+            need_embeddinggemma2_features,
             pooling: post_process,
             quantization,
             output_key,
@@ -188,6 +202,7 @@ impl TextEmbedding {
             EmbeddingModel::JinaEmbeddingsV2BaseEN => Some(Pooling::Mean),
 
             EmbeddingModel::EmbeddingGemma300M => Some(Pooling::Mean),
+            EmbeddingModel::EmbeddingGemma2 => None,
             EmbeddingModel::EmbeddingGemma300MQ4 => Some(Pooling::Mean),
             EmbeddingModel::EmbeddingGemma300MQ => Some(Pooling::Mean),
 
@@ -261,6 +276,7 @@ impl TextEmbedding {
             | EmbeddingModel::JinaEmbeddingsV2BaseCode
             | EmbeddingModel::JinaEmbeddingsV2BaseEN
             | EmbeddingModel::EmbeddingGemma300M
+            | EmbeddingModel::EmbeddingGemma2
             | EmbeddingModel::SnowflakeArcticEmbedXS
             | EmbeddingModel::SnowflakeArcticEmbedS
             | EmbeddingModel::SnowflakeArcticEmbedM
@@ -346,7 +362,23 @@ impl TextEmbedding {
             .map(|batch| {
                 let inputs = batch.iter().map(|text| text.as_ref()).collect();
                 let mut encoded = encode_batch(&self.tokenizer, inputs)?;
-                let session_inputs = encoded.session_inputs(self.need_token_type_ids)?;
+                if self.need_embeddinggemma2_features {
+                    for token in ["<|image|>", "<|video|>", "<|audio|>"] {
+                        if let Some(id) = self.tokenizer.token_to_id(token) {
+                            if encoded.input_ids.iter().any(|value| *value == i64::from(id)) {
+                                return Err(Error::InvalidArgument(format!(
+                                    "EmbeddingGemma 2 text embeddings do not support the media placeholder {token}"
+                                )));
+                            }
+                        }
+                    }
+                }
+                let mut session_inputs = encoded.session_inputs(self.need_token_type_ids)?;
+                if self.need_embeddinggemma2_features {
+                    for name in ["image_features", "video_features", "audio_features"] {
+                        session_inputs.push((name.into(), Value::from_array(ndarray::Array2::<f32>::zeros((0, 512)))?.into()));
+                    }
+                }
 
                 let outputs_map = self
                     .session

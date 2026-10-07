@@ -76,6 +76,7 @@ pub enum EmbeddingModel {
     JinaEmbeddingsV2BaseEN,
     /// onnx-community/embeddinggemma-300m-ONNX
     EmbeddingGemma300M,
+    EmbeddingGemma2,
     /// Quantized (4-bit) onnx-community/embeddinggemma-300m-ONNX
     EmbeddingGemma300MQ4,
     /// Quantized onnx-community/embeddinggemma-300m-ONNX
@@ -423,6 +424,17 @@ fn init_models_map() -> HashMap<EmbeddingModel, ModelInfo<EmbeddingModel>> {
             output_key: Some(crate::OutputKey::ByName("sentence_embedding")),
         },
         ModelInfo {
+            model: EmbeddingModel::EmbeddingGemma2,
+            dim: 768,
+            description: String::from(
+                "EmbeddingGemma 2 text embeddings from Google's 270M parameter text backbone",
+            ),
+            model_code: String::from("onnx-community/embeddinggemma-2-ONNX"),
+            model_file: String::from("onnx/model.onnx"),
+            additional_files: vec!["onnx/model.onnx_data".to_string()],
+            output_key: Some(crate::OutputKey::ByName("sentence_embedding")),
+        },
+        ModelInfo {
             model: EmbeddingModel::EmbeddingGemma300MQ4,
             dim: 768,
             description: String::from(
@@ -631,6 +643,7 @@ pub(crate) fn all_variants() -> Vec<EmbeddingModel> {
             EmbeddingModel::JinaEmbeddingsV2BaseCode => (),
             EmbeddingModel::JinaEmbeddingsV2BaseEN => (),
             EmbeddingModel::EmbeddingGemma300M => (),
+            EmbeddingModel::EmbeddingGemma2 => (),
             EmbeddingModel::EmbeddingGemma300MQ4 => (),
             EmbeddingModel::EmbeddingGemma300MQ => (),
             EmbeddingModel::SnowflakeArcticEmbedXS => (),
@@ -680,6 +693,7 @@ pub(crate) fn all_variants() -> Vec<EmbeddingModel> {
         EmbeddingModel::JinaEmbeddingsV2BaseCode,
         EmbeddingModel::JinaEmbeddingsV2BaseEN,
         EmbeddingModel::EmbeddingGemma300M,
+        EmbeddingModel::EmbeddingGemma2,
         EmbeddingModel::EmbeddingGemma300MQ4,
         EmbeddingModel::EmbeddingGemma300MQ,
         EmbeddingModel::SnowflakeArcticEmbedXS,

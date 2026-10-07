@@ -206,6 +206,7 @@ pub struct TextEmbedding {
     pub(crate) pooling: Option<Pooling>,
     pub(crate) session: Session,
     pub(crate) need_token_type_ids: bool,
+    pub(crate) need_embeddinggemma2_features: bool,
     pub(crate) quantization: QuantizationMode,
     pub(crate) output_key: Option<OutputKey>,
 }

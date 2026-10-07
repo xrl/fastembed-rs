@@ -46,6 +46,7 @@
 - [**jinaai/jina-embeddings-v2-base-code**](https://huggingface.co/jinaai/jina-embeddings-v2-base-code)
 - [**jinaai/jina-embeddings-v2-base-en**](https://huggingface.co/jinaai/jina-embeddings-v2-base-en)
 - [**google/embeddinggemma-300m**](https://huggingface.co/google/embeddinggemma-300m)
+- [**google/embeddinggemma-2**](https://huggingface.co/google/embeddinggemma-2) (text only, `EmbeddingModel::EmbeddingGemma2`)
 - [**nomic-ai/nomic-embed-text-v2-moe**](https://huggingface.co/nomic-ai/nomic-embed-text-v2-moe) - requires `nomic-v2-moe` feature (candle backend)
 - [**Qwen/Qwen3-Embedding-0.6B**](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) - requires `qwen3` feature (candle backend)
 - [**Qwen/Qwen3-Embedding-4B**](https://huggingface.co/Qwen/Qwen3-Embedding-4B) - requires `qwen3` feature (candle backend)
@@ -432,3 +433,37 @@ match TextEmbedding::try_new(TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
 ## LICENSE
 
 [Apache 2.0](https://github.com/Anush008/fastembed-rs/blob/main/LICENSE)
+
+### EmbeddingGemma 2 text embeddings
+
+`EmbeddingModel::EmbeddingGemma2` loads the FP32 text backbone from
+[`onnx-community/embeddinggemma-2-ONNX`](https://huggingface.co/onnx-community/embeddinggemma-2-ONNX).
+It returns normalized 768-dimensional sentence embeddings without downloading the
+vision or audio encoders. Special tokens are loaded directly from the bundled
+`tokenizer.json`; this export does not require a `special_tokens_map.json` sidecar.
+Images, audio, video, and their reserved placeholder
+tokens are not supported by this text interface.
+
+Task prefixes are supplied by the caller. For retrieval, use
+`task: search result | query: {query}` for queries and
+`title: {title} | text: {content}` for documents (`title: none` without a title).
+For code search, use `task: code retrieval | query: {query}` for queries.
+
+```rust
+use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+
+let mut model = TextEmbedding::try_new(
+    TextInitOptions::new(EmbeddingModel::EmbeddingGemma2).with_max_length(8192),
+)?;
+let embeddings = model.embed(
+    [
+        "task: search result | query: Which planet is known as the Red Planet?",
+        "title: none | text: Mars is known as the Red Planet.",
+    ],
+    Some(2),
+)?;
+```
+
+The default maximum length remains 512 tokens; use `with_max_length` to select up
+to 8192 tokens, including special tokens and the prefix. Larger lengths and batches
+require more memory. Quantized EmbeddingGemma 2 variants are not registered.

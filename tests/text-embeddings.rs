@@ -67,6 +67,7 @@ fn verify_embeddings(model: &EmbeddingModel, embeddings: &[Embedding]) -> Result
         EmbeddingModel::ClipVitB32 => [0.7057363, 1.3549932, 0.46823958, 0.52351093],
         EmbeddingModel::JinaEmbeddingsV2BaseCode => [-0.31383067, -0.3758629, -0.24878195, -0.35373706],
         EmbeddingModel::JinaEmbeddingsV2BaseEN => [-0.055866606, -0.033922599, 0.012131551, -0.0132129812],
+        EmbeddingModel::EmbeddingGemma2 => [-0.55349326, -0.23561138, 0.5820565, 0.05865897],
         EmbeddingModel::EmbeddingGemma300M => [0.22703816, 0.6947083, 0.07579082, 1.6958784],
         EmbeddingModel::EmbeddingGemma300MQ4 => [0.3110208, 0.6683019, 0.38347214, 1.787025],
         EmbeddingModel::EmbeddingGemma300MQ => [0.11791767, 0.34993136, -0.018153993, 1.4971508],
@@ -622,4 +623,58 @@ fn clip_vit_b32_deterministic_across_calls() {
         let vecs = fe.embed(vec![q], None).unwrap();
         assert_eq!(vecs[0], first, "Embedding changed after {i} iterations");
     }
+}
+
+#[test]
+fn embeddinggemma2_text_embeddings_match_reference() {
+    assert_eq!(
+        TextInitOptions::new(EmbeddingModel::EmbeddingGemma2).max_length,
+        512
+    );
+    let reference: serde_json::Value =
+        serde_json::from_str(include_str!("assets/embeddinggemma2.json")).unwrap();
+    let texts: Vec<&str> = reference["texts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|text| text.as_str().unwrap())
+        .collect();
+    let mut model = TextEmbedding::try_new(
+        TextInitOptions::new(EmbeddingModel::EmbeddingGemma2)
+            .with_intra_threads(2)
+            .with_max_length(16384),
+    )
+    .unwrap();
+    assert_eq!(model.tokenizer.get_truncation().unwrap().max_length, 8192);
+    let embeddings = model.embed(&texts, Some(2)).unwrap();
+    let separate = model.embed(&texts, Some(1)).unwrap();
+    assert_eq!(embeddings.len(), texts.len());
+    assert_eq!(separate.len(), texts.len());
+    for (i, embedding) in embeddings.iter().enumerate() {
+        assert_eq!(embedding.len(), 768);
+        assert!(embedding.iter().all(|value| value.is_finite()));
+        let norm = embedding.iter().map(|value| value * value).sum::<f32>();
+        assert!((norm - 1.0).abs() < 1e-5);
+        for (j, value) in embedding.iter().enumerate() {
+            let expected = reference["embeddings"][i][j].as_f64().unwrap() as f32;
+            assert!(
+                (value - expected).abs() < 1e-4,
+                "{i}:{j}: {value} != {expected}"
+            );
+            assert!((value - separate[i][j]).abs() < 1e-4);
+        }
+    }
+    for token in ["<|image|>", "<|video|>", "<|audio|>"] {
+        let error = model.embed([token], None).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("do not support the media placeholder"));
+    }
+    assert!(model
+        .embed(["valid text after a rejected placeholder"], None)
+        .is_ok());
+    let empty = model.embed([""], None).unwrap();
+    assert_eq!(empty[0].len(), 768);
+    assert!(empty[0].iter().all(|value| value.is_finite()));
+    assert!(model.embed(Vec::<&str>::new(), None).unwrap().is_empty());
 }

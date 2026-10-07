@@ -111,10 +111,20 @@ pub struct TokenizerFiles {
 /// from the main load_tokenizer function (which is expecting bytes, from any source).
 #[cfg(feature = "hf-hub")]
 pub fn load_tokenizer_hf_hub(model_repo: ApiRepo, max_length: usize) -> Result<Tokenizer> {
+    let special_tokens_map_file = std::fs::read(model_repo.get("special_tokens_map.json")?)?;
+    load_tokenizer_hf_hub_with_special_tokens(model_repo, max_length, special_tokens_map_file)
+}
+
+#[cfg(feature = "hf-hub")]
+pub(crate) fn load_tokenizer_hf_hub_with_special_tokens(
+    model_repo: ApiRepo,
+    max_length: usize,
+    special_tokens_map_file: Vec<u8>,
+) -> Result<Tokenizer> {
     let tokenizer_files: TokenizerFiles = TokenizerFiles {
         tokenizer_file: std::fs::read(model_repo.get("tokenizer.json")?)?,
         config_file: std::fs::read(&model_repo.get("config.json")?)?,
-        special_tokens_map_file: std::fs::read(&model_repo.get("special_tokens_map.json")?)?,
+        special_tokens_map_file,
 
         tokenizer_config_file: std::fs::read(&model_repo.get("tokenizer_config.json")?)?,
     };
@@ -470,6 +480,27 @@ mod tests {
             special_tokens_map_file: b"{}".to_vec(),
             tokenizer_config_file: tokenizer_config.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn load_tokenizer_keeps_embedded_special_tokens_without_a_sidecar() {
+        let mut files = tokenizer_files(r#"{"model_max_length": 512, "pad_token": "[PAD]"}"#);
+        let mut serialized: serde_json::Value =
+            serde_json::from_slice(&files.tokenizer_file).unwrap();
+        serialized["added_tokens"] = serde_json::json!([{
+            "id": 3,
+            "content": "<|image|>",
+            "single_word": false,
+            "lstrip": false,
+            "rstrip": false,
+            "normalized": false,
+            "special": true
+        }]);
+        files.tokenizer_file = serde_json::to_vec(&serialized).unwrap();
+        let tokenizer = load_tokenizer(files, 512).unwrap();
+        assert_eq!(tokenizer.token_to_id("<|image|>"), Some(3));
+        assert_eq!(tokenizer.encode("<|image|>", true).unwrap().get_ids(), &[3]);
+        assert_eq!(tokenizer.decode(&[3], true).unwrap(), "");
     }
 
     #[test]
